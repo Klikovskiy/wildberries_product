@@ -146,3 +146,4 @@ dmypy.json
 .mypy_cache
 task_parsing.txt
 work_logs.log
+result.xlsx
