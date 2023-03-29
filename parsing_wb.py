@@ -87,4 +87,5 @@ def parsing_product(delay_vendor=0.5):
         logging.critical('Ошибка загрузки данных!')
 
 
-parsing_product()
+if __name__ == "__main__":
+    parsing_product()
