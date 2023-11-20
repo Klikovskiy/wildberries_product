@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import List, Dict, Union
 
 import pandas as pd
 import requests
@@ -13,27 +14,29 @@ logging.basicConfig(
 )
 
 
-def xlsx_writer(data, file_nam='result.xlsx', sheet_name='wildberries'):
+def xlsx_writer(data: Dict[str, List[Union[int, str, float]]],
+                file_name: str = 'result.xlsx',
+                sheet_name: str = 'wildberries') -> None:
     """Записывает данные в .xlsx документ."""
     df = pd.DataFrame(data)
-    df.to_excel(file_nam, index=False, sheet_name=sheet_name)
+    df.to_excel(file_name, index=False, sheet_name=sheet_name)
 
 
-def load_vender_code():
+def load_vendor_codes(file_path: str = 'task_parsing.txt') -> List[int]:
     """Загружает список артикулов."""
     try:
-        with open('task_parsing.txt', 'r') as open_file:
+        with open(file_path, 'r') as open_file:
             lines = [int(result.strip()) for result in open_file.readlines()]
         if lines:
             return lines
         raise ValueError('Добавьте хотя бы 1 артикул в "task_parsing.txt"')
     except FileNotFoundError:
-        logging.critical('Отсутствует файл "task_parsing.txt"')
+        logging.critical(f'Отсутствует файл "{file_path}"')
     except ValueError:
         logging.critical('Можно добавлять только числовые артикулы!')
 
 
-def parsing_product(delay_vendor=0.5):
+def parse_product(delay_vendor: float = 0.5) -> None:
     """Поиск и агрегация данных о товаре."""
     results = {
         'Артикул': [],
@@ -46,9 +49,12 @@ def parsing_product(delay_vendor=0.5):
         'Количество отзывов': [],
         'Рейтинг': [],
     }
-    load_data = load_vender_code()
-    if load_data:
-        for vendor_code in load_data:
+    NOT_FOUND_NUMBER: int = 0
+    NOT_FOUND_STRING: int = 0
+
+    vendor_codes = load_vendor_codes()
+    if vendor_codes:
+        for vendor_code in vendor_codes:
             time.sleep(delay_vendor)
             logging.info(f'Выполняю поиск данных по артикулу: {vendor_code}.')
             headers = {'user-agent': UserAgent(use_external_data=True).chrome}
@@ -56,36 +62,49 @@ def parsing_product(delay_vendor=0.5):
                                         f'?spp=18&locale=ru&lang=ru&curr=rub'
                                         f'&nm={vendor_code}', headers=headers)
 
-            if response.status_code == 200:
+            try:
+                response.raise_for_status()
                 json_data = response.json().get('data')
                 if json_data:
                     for product in json_data.get('products'):
                         results['Артикул'].append(vendor_code)
-                        results['Название'].append(product.get('name'))
-                        results['Брэнд'].append(product.get('brand'))
-                        results['Стоимость'].append(product.get('priceU'))
+                        results['Название'].append(
+                            product.get('name', NOT_FOUND_STRING))
+                        results['Брэнд'].append(
+                            product.get('brand', NOT_FOUND_STRING))
+                        results['Стоимость'].append(
+                            product.get('priceU', NOT_FOUND_STRING))
                         results['Размер скидки'].append(
-                            product.get('extended').get('basicSale')
+                            product.get('extended', {}).get('basicSale',
+                                                            NOT_FOUND_NUMBER)
                         )
                         results['Размер СПП'].append(
-                            product.get('extended').get('clientSale')
+                            product.get('extended', {}).get('clientSale',
+                                                            NOT_FOUND_NUMBER)
                         )
                         results['URL товара'].append(
                             f'https://www.wildberries.ru/catalog/'
                             f'{vendor_code}/detail.aspx'
                         )
                         results['Количество отзывов'].append(
-                            product.get('feedbacks')
+                            product.get('feedbacks', NOT_FOUND_NUMBER)
                         )
-                        results['Рейтинг'].append(product.get('rating'))
-
-            else:
-                logging.warning(f'Проблемы с получением данных, '
-                                f'артикул {vendor_code}')
+                        results['Рейтинг'].append(
+                            product.get('rating', NOT_FOUND_NUMBER)
+                        )
+            except requests.exceptions.HTTPError:
+                logging.warning(
+                    'Проблемы с получением данных, '
+                    f'артикул {vendor_code}')
+            except AttributeError as e:
+                logging.error(
+                    'Ошибка при обработке данных '
+                    f'для артикула {vendor_code}: {e}'
+                )
         xlsx_writer(results)
     else:
         logging.critical('Ошибка загрузки данных!')
 
 
 if __name__ == "__main__":
-    parsing_product()
+    parse_product()
